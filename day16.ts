@@ -4,32 +4,28 @@ const input = readFileSync('day16.input', 'utf-8')
     .split(/\r?\n/)
     .filter(x => x)
 
-const valves: string[] = []
-const rateValves: string[] = []
-const rates: {[v: string]: number} = {}
-const reverseTunnels: {[v: string]: string[]} = {}
+// refer to valves as indexes so state is 3d array, which is faster than key
+// lookups in objects or maps
+const valves: string[] = input.map(l => l.split(' ')[1])
+const startValve = valves.indexOf('AA')
 
-for (const l of input) {
-    const valve = l.split(' ')[1]
-    valves.push(valve)
+const rates: number[] = []
+const rateValves: number[] = []
+const tunnels: number[][] = []
+for (let valveIdx = 0; valveIdx < input.length; valveIdx++) {
+    rates[valveIdx] = Number(input[valveIdx].match(/\d+/))
+    if (rates[valveIdx] > 0) rateValves.push(valveIdx)
 
-    const rate = Number(l.match(/\d+/))
-    if (rate > 0) {
-        rateValves.push(valve)
-        rates[valve] = rate
-    }
-
-    const tunnels = l.replaceAll(',', '').split(' ').slice(9)
-    for (const t of tunnels) {
-        reverseTunnels[t] ??= []
-        reverseTunnels[t].push(valve)
-    }
+    tunnels[valveIdx] = input[valveIdx]
+        .replaceAll(',', '').split(' ').slice(9)
+        .map(v => valves.indexOf(v))
 }
 
 // releasing[open] = pressure/min released
+// open is a bitset representing which valves are open
 const releasing: number[] = []
-const maxOpen = (1 << rateValves.length) - 1
-for (let open = 0; open <= maxOpen; open++) {
+const maxOpen = 1 << rateValves.length
+for (let open = 0; open < maxOpen; open++) {
     let total = 0
     for (let i = 0; i < rateValves.length; i++) {
         if ((open & (1 << i)) !== 0) total += rates[rateValves[i]]
@@ -38,66 +34,71 @@ for (let open = 0; open <= maxOpen; open++) {
 }
 
 // states[min][pos][open] = max released
-const states: {[min: number]: {[pos: string]: {[open: number]: number}}} = {}
-states[0] ??= {}
-states[0]['AA'] ??= {}
-states[0]['AA'][0] = 0
+const states: number[][][] = []
+states[0] ??= []
+states[0][startValve] ??= []
+states[0][startValve][0] = 0
 
 for (let min = 1; min <= 30; min++) {
-    states[min] ??= {}
-    for (const pos of valves) {
-        states[min][pos] ??= {}
-        let valveBit = rates[pos] ? (1 << rateValves.indexOf(pos)) : 0
+    states[min] ??= []
+    for (let pos = 0; pos < valves.length; pos++) {
+        states[min][pos] ??= []
+        const valveBit = rates[pos] ? (1 << rateValves.indexOf(pos)) : 0
 
-        for (let open = 0; open <= maxOpen; open++) {
+        for (let open = 0; open < maxOpen; open++) {
             let max = -Infinity
 
             // opened valve
-            if (valveBit) {
-                let prevOpen = open & ~valveBit
-                let r = states[min - 1][pos]?.[prevOpen]
-                if (r !== undefined) max = r + releasing[prevOpen]
+            if ((valveBit & open) !== 0) {
+                const prevOpen = open & ~valveBit
+                const released = states[min - 1][pos]?.[prevOpen] ?? -Infinity
+                max = released + releasing[prevOpen]
             }
 
             // moved location
-            for (const prev of reverseTunnels[pos]) {
-                let r = states[min - 1][prev]?.[open]
-                if (r !== undefined) max = Math.max(max, r + releasing[open])
+            for (const prev of tunnels[pos]) {
+                const released = states[min - 1][prev]?.[open] ?? -Infinity
+                max = Math.max(max, released + releasing[open])
             }
 
-            if (max >= 0) states[min][pos][open] = max
+            states[min][pos][open] = max
         }
     }
 }
 
-console.log(Math.max(...Object.values(states[30]).flatMap(Object.values)))
+let p1 = -Infinity
+for (let pos = 0; pos < valves.length; pos++) {
+    for (let open = 0; open < maxOpen; open++) {
+        p1 = Math.max(p1, states[30][pos][open])
+    }
+}
+console.log(p1)
 
 
 // part 2
 
 // minute26Max[open] = max released
 const minute26Max: number[] = []
-for (let open = 0; open <= maxOpen; open++) {
-    let max = -Infinity;
-    for (const pos of valves) {
+for (let open = 0; open < maxOpen; open++) {
+    let max = -Infinity
+    for (let pos = 0; pos < valves.length; pos++) {
         max = Math.max(max, states[26][pos][open] ?? -Infinity)
     }
-    if (max >= 0) minute26Max[open] = max
+    minute26Max[open] = max
 }
 
 let p2 = 0
-for (let youOpen = 0; youOpen <= maxOpen; youOpen++) {
-    let youMax = minute26Max[youOpen]
-    if (youMax === undefined) continue // state not reachable
+for (let youOpen = 0; youOpen < maxOpen; youOpen++) {
+    const youMax = minute26Max[youOpen]
+    if (youMax <= 0) continue
 
-    for (let elephantOpen = 0; elephantOpen <= maxOpen; elephantOpen++) {
+    for (let elephantOpen = youOpen + 1; elephantOpen < maxOpen; elephantOpen++) {
         if ((youOpen & elephantOpen) !== 0) continue // can't both open same valves
 
-        let elephantMax = minute26Max[elephantOpen]
-        if (elephantMax === undefined) continue // state not reachable
+        const elephantMax = minute26Max[elephantOpen]
+        if (elephantMax <= 0) continue
 
         p2 = Math.max(p2, youMax + elephantMax)
     }
 }
-
 console.log(p2)
